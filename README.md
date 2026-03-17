@@ -1,4 +1,5 @@
-# Knowledge Transfer with Simulated Inter-Image Erasing for Weakly Supervised Semantic Segmentation
+# Knowledge Transfer with Simulated Inter-Image Erasing for Weakly Supervised Semantic Segmentation +
+
 
 
 Network Architecture
