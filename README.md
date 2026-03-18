@@ -1,4 +1,4 @@
-# Knowledge Transfer with Simulated Inter-Image Erasing for Weakly Supervised Semantic Segmentation +
+# KTSE+: Simulated Inter-Image Erasing and Activation Leakage Suppression for Weakly Supervised Semantic Segmentation
 
 
 
