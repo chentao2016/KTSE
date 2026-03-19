@@ -220,6 +220,20 @@ class Net_gpp(nn.Module):
         self.gconv2 = gconv(20,20)
         self.gconv3 = gconv(20,20)
 
+        self.query_conv = nn.Conv2d(D, D, 1)
+        self.key_conv = nn.Conv2d(D, D, 1)
+        self.value_conv = nn.Conv2d(D, D, 1)
+
+        self.query_conv_2 = nn.Conv2d(D, D, 1)
+        self.key_conv_2 = nn.Conv2d(D, D, 1)
+
+        # depth means current layer index
+        self.lambda_init = 0.5
+        self.lambda_q1 = nn.Parameter(torch.zeros(D, dtype=torch.float32).normal_(mean=0,std=0.1))
+        self.lambda_k1 = nn.Parameter(torch.zeros(D, dtype=torch.float32).normal_(mean=0,std=0.1))
+        self.lambda_q2 = nn.Parameter(torch.zeros(D, dtype=torch.float32).normal_(mean=0,std=0.1))
+        self.lambda_k2 = nn.Parameter(torch.zeros(D, dtype=torch.float32).normal_(mean=0,std=0.1))
+
 
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.dropout = nn.Dropout2d(0.3)
@@ -230,8 +244,7 @@ class Net_gpp(nn.Module):
         self.from_scratch_layers = []
         self.not_training = [self.conv1a, self.b2, self.b2_1, self.b2_2]
 
-    def forward(self, x):
-
+    def forward_feature(self, x):
         B,_,H,W = x.size()
         
         x = self.conv1a(x)
@@ -263,9 +276,10 @@ class Net_gpp(nn.Module):
         x = F.relu(self.bn7(x))
 
         feat = F.relu(self.fc8(x))  # B x D x 56 x 56 #기존
-        cam_seg = self.fc9(feat)
-        cam = cam_seg[:,1:,:,:]
-        
+
+        return feat
+
+    def cam2logit(self, cam):
         gap_2 = F.interpolate(F.adaptive_avg_pool2d(cam,(2,2)),size=cam.size()[2:],mode='bilinear',align_corners=False)
         gap_4 = F.interpolate(F.adaptive_avg_pool2d(cam,(4,4)),size=cam.size()[2:],mode='bilinear',align_corners=False)
         gap_8 = F.interpolate(F.adaptive_avg_pool2d(cam,(8,8)),size=cam.size()[2:],mode='bilinear',align_corners=False)
@@ -278,7 +292,117 @@ class Net_gpp(nn.Module):
         outs = self.avgpool(F.relu(cam)*F.relu(gpp)).squeeze(3).squeeze(2)
         outs -= self.avgpool(F.relu(-cam)*F.relu(-gpp)).squeeze(3).squeeze(2)
 
-        return cam, outs, gpp, cam_seg
+        return gpp, outs
+
+
+
+    # def affinity_learning(self, x, y):
+    #     # Cross-feature attention
+    #     # x: Feature map 1 (B, C, H, W)
+    #     # y: Feature map 2 (B, C, H, W)
+
+    #     # Compute attention weights for x and y
+    #     q_x = self.query_conv(x)  # Query from x
+    #     k_y = self.key_conv(y)    # Key from y
+    #     v_y = self.value_conv(y)  # Value from y
+
+    #     q_y = self.query_conv(y)  # Query from y
+    #     k_x = self.key_conv(x)    # Key from x
+    #     v_x = self.value_conv(x)  # Value from x
+
+    #     # Attention map for x and y
+    #     attention_x = torch.matmul(q_x.view(q_x.size(0), q_x.size(1), -1).permute(0, 2, 1),
+    #                                 k_y.view(k_y.size(0), k_y.size(1), -1))
+    #     attention_x = F.softmax(attention_x, dim=-1)
+
+    #     attention_y = torch.matmul(q_y.view(q_y.size(0), q_y.size(1), -1).permute(0, 2, 1),
+    #                                 k_x.view(k_x.size(0), k_x.size(1), -1))
+    #     attention_y = F.softmax(attention_y, dim=-1)
+
+    #     # Apply attention to values
+    #     out_x = torch.matmul(attention_x, v_y.view(v_y.size(0), v_y.size(1), -1).permute(0, 2, 1))
+    #     out_x = out_x.permute(0, 2, 1).view_as(x)
+
+    #     out_y = torch.matmul(attention_y, v_x.view(v_x.size(0), v_x.size(1), -1).permute(0, 2, 1))
+    #     out_y = out_y.permute(0, 2, 1).view_as(y)
+
+    #     # Combine with original features
+    #     enhanced_x = x + out_x
+    #     enhanced_y = y + out_y
+
+    #     return enhanced_x, enhanced_y
+
+    def affinity_learning(self, x, y):
+        # Cross-feature attention
+        # x: Feature map 1 (B, C, H, W)
+        # y: Feature map 2 (B, C, H, W)
+
+        # Compute attention weights
+        q_x = self.query_conv(x)  # Query from x
+        k_y = self.key_conv(y)    # Key from y
+        v_y = self.value_conv(y)  # Value from y
+
+        q_x_2 = self.query_conv_2(x)  # Query from x
+        k_y_2 = self.key_conv_2(y)    # Key from y
+
+        B, C, H, W = x.shape
+
+
+        # Attention map (B, H*W, H*W)
+        attention = torch.matmul(q_x.view(q_x.size(0), q_x.size(1), -1).permute(0, 2, 1),
+                                k_y.view(k_y.size(0), k_y.size(1), -1))
+        attention = F.softmax(attention / (C ** 0.5), dim=-1)
+
+        attention_2 = torch.matmul(q_x_2.view(q_x_2.size(0), q_x_2.size(1), -1).permute(0, 2, 1),
+                                k_y_2.view(k_y_2.size(0), k_y_2.size(1), -1))
+        attention_2 = F.softmax(attention_2 / (C ** 0.5), dim=-1)
+
+        lambda_1 = torch.exp(torch.sum(self.lambda_q1 * self.lambda_k1, dim=-1).float()).type_as(q_x)
+        lambda_2 = torch.exp(torch.sum(self.lambda_q2 * self.lambda_k2, dim=-1).float()).type_as(q_x)
+        lambda_full = lambda_1 - lambda_2 + self.lambda_init
+
+        # Apply attention to value
+        out = torch.matmul(attention - lambda_full * attention_2, v_y.view(v_y.size(0), v_y.size(1), -1).permute(0, 2, 1))
+        out = out.permute(0, 2, 1).view_as(x)
+
+        #return out
+
+        # Combine with original feature
+        enhanced_x = x + out
+
+        return enhanced_x
+
+
+    def forward(self, x, y=None):
+
+        if y is None:
+            feat = self.forward_feature(x)  
+            feat = self.affinity_learning(feat, feat)
+            cam_seg = self.fc9(feat)
+            cam = cam_seg[:,1:,:,:]
+
+            gpp, outs = self.cam2logit(cam)
+
+            return [cam, outs, gpp, cam_seg]
+        else:
+            x_feat = self.forward_feature(x)  
+            y_feat = self.forward_feature(y)
+            x_feat_att = self.affinity_learning(x_feat, y_feat)
+            y_feat_att = self.affinity_learning(y_feat, x_feat)
+
+
+            x_cam_seg = self.fc9(x_feat_att)
+            y_cam_seg = self.fc9(y_feat_att)
+            x_cam = x_cam_seg[:,1:,:,:]
+            y_cam = y_cam_seg[:,1:,:,:]
+
+            gpp_x, outs_x = self.cam2logit(x_cam)
+            gpp_y, outs_y = self.cam2logit(y_cam)
+
+            return [x_cam, outs_x, gpp_x, x_cam_seg], [y_cam, outs_y, gpp_y, y_cam_seg]
+
+
+
 
     def train(self, mode=True):
 

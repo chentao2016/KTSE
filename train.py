@@ -37,7 +37,7 @@ if __name__ == '__main__':
     parser.add_argument("--train_list", default="voc12/train_aug.txt", type=str)
     parser.add_argument("--val_list", default="voc12/train.txt", type=str)
     parser.add_argument("--num_workers", default=8, type=int)
-    parser.add_argument("--batch_size", default=16, type=int)                       #32
+    parser.add_argument("--batch_size", default=8, type=int)                       #32
 
     # Augmentation
     parser.add_argument("--resize", default=[256, 512], nargs='+', type=float)         #[256, 512]
@@ -52,7 +52,7 @@ if __name__ == '__main__':
     parser.add_argument("--W", default=[1.0, 1.0, 0.15], nargs='+', type=float)
     parser.add_argument("--CRF", default=4, type=int)
 
-    parser.add_argument("--RCAM_T", default=[0.3, 0.15], nargs='+', type=float)
+    parser.add_argument("--RCAM_T", default=[0.3, 0.1], nargs='+', type=float)
 
 
     # Learning rate
@@ -147,7 +147,7 @@ if __name__ == '__main__':
         logger.info('Epoch ' + epo_str + ' model is saved!')
         model.save_model(epo, ckpt_path)
 
-        if (epo>37 or epo==11 or epo==21 or epo==31):   #(args.T-2):
+        if (epo>20 or epo==11 or epo==15 or epo==18):   #(args.T-2):
             # # Validation
             logger.info('-' * 111)
             logger.info('Epoch ' + epo_str + ' validation')
